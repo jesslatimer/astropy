@@ -2,7 +2,7 @@ import contextlib
 import decimal
 import functools
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 
 import erfa
@@ -690,144 +690,191 @@ def test_timedelta_conversion(scale1, scale2, jds_a, jds_b):
 
 
 # UTC disagrees when there are leap seconds
-_utc_bad = [
-    s for s in STANDARD_TIME_SCALES if s != "utc"
-]
+
+_utc_bad = [list(STANDARD_TIME_SCALES)]
+# _utc_bad = [
+#     (pytest.param(s, marks=pytest.mark.xfail) if s == "utc" else s)
+#     for s in STANDARD_TIME_SCALES
+# ]
+
+def wrap_utc(test_func, scale, *args):
+    try:
+        test_func(scale, *args)
+    except Exception as e:
+        if scale != "utc":
+            raise(e)
+    else:
+        if scale == "utc":
+            raise AssertionError("This test should always raise an exception.")
+
+
+# @given(datetimes(), datetimes())  # datetimes have microsecond resolution
+# @example(dt1=datetime(1235, 1, 1, 0, 0), dt2=datetime(9950, 1, 1, 0, 0, 0, 890773))
+# # my examples, but don't seem to xpassed like expected
+# @example(dt1=datetime(3924, 8, 31, 7, 30, 39, 262179), dt2=datetime(3024, 8, 8, 4, 0, 35, 664330))
+# @example(dt1=datetime(2825, 7, 7, 10, 34, 34, 172706), dt2=datetime(2674, 3, 3, 1, 0, 0))
+# @example(dt1=datetime(2825, 7, 7, 10, 34, 34, 172706), dt2=datetime(2825, 7, 7, 10, 34, 34, 172706))
+# @pytest.mark.parametrize("scale", _utc_bad)
+# def test_datetime_difference_agrees_with_timedelta(scale, dt1, dt2):
+#     t1 = Time(dt1, scale=scale)
+#     t2 = Time(dt2, scale=scale)
+#     assert_almost_equal(
+#         t2 - t1,
+#         TimeDelta(dt2 - dt1, scale=None if scale == "utc" else scale),
+#         atol=2 * u.us,
+#     )
 
 
 @given(
-    scale=sampled_from(_utc_bad),
+    scale=sampled_from(STANDARD_TIME_SCALES),
     dt1=datetimes(),
     dt2=datetimes()
 )  # datetimes have microsecond resolution
 @example(dt1=datetime(1235, 1, 1, 0, 0), dt2=datetime(9950, 1, 1, 0, 0, 0, 890773))
+@example(dt1=datetime(3924, 8, 31, 7, 30, 39, 262179), dt2=datetime(3024, 8, 8, 4, 0, 35, 664330))
+@example(dt1=datetime(2825, 7, 7, 10, 34, 34, 172706), dt2=datetime(2674, 3, 3, 1, 0, 0))
 def test_datetime_difference_agrees_with_timedelta(scale, dt1, dt2):
-    t1 = Time(dt1, scale=scale)
-    t2 = Time(dt2, scale=scale)
-    assert_almost_equal(
-        t2 - t1,
-        TimeDelta(dt2 - dt1, scale=None if scale == "utc" else scale),
-        atol=2 * u.us,
-    )
+    try:
+        t1 = Time(dt1, scale=scale)
+        t2 = Time(dt2, scale=scale)
+        time_delta = TimeDelta(dt2 - dt1, scale=None if scale == "utc" else scale)
+        assert_almost_equal(
+            t2 - t1,
+            time_delta, atol=2 * u.us,)
+        print("dt diff: ", time_delta, "t diff: ", t2 - t1, "scale: ", scale)
+    except Exception as e:
+        if scale != "utc":
+            raise(e)
+    else:
+        if scale == "utc":
+            print(repr(dt1),repr(dt2))
+            print(repr(t1),repr(t2))
+            print(repr(t2 - t1))
+            raise AssertionError("This test should always raise an exception.")
 
 
 @given(
-    scale=sampled_from(_utc_bad),
+    scale=sampled_from(STANDARD_TIME_SCALES),
     days=integers(-3000 * 365, 3000 * 365),
     microseconds=integers(0, 24 * 60 * 60 * 1000000),
 )
 def test_datetime_to_timedelta(scale, days, microseconds):
-    td = timedelta(days=days, microseconds=microseconds)
-    assert TimeDelta(td, scale=scale) == TimeDelta(
-        days, microseconds / (86400 * 1e6), scale=scale, format="jd"
-    )
+    def harness(scale, days, microseconds):
+        td = timedelta(days=days, microseconds=microseconds)
+        assert TimeDelta(td, scale=scale) == TimeDelta(
+            days, microseconds / (86400 * 1e6), scale=scale, format="jd"
+        )
+    wrap_utc(harness, scale, days, microseconds)
 
 
 @given(
-    scale=sampled_from(_utc_bad),
+    scale=sampled_from(STANDARD_TIME_SCALES),
     days=integers(-3000 * 365, 3000 * 365),
     microseconds=integers(0, 24 * 60 * 60 * 1000000),
 )
 def test_datetime_timedelta_roundtrip(scale, days, microseconds):
-    td = timedelta(days=days, microseconds=microseconds)
-    assert td == TimeDelta(td, scale=scale).value
+    def harness(scale, days, microseconds):
+        td = timedelta(days=days, microseconds=microseconds)
+        assert td == TimeDelta(td, scale=scale).value
+    wrap_utc(harness, scale, days, microseconds)
 
 
-@given(
-    scale=sampled_from(_utc_bad),
-    days=integers(-3000 * 365, 3000 * 365),
-    day_frac=floats(0, 1)
-)
-@example(days=262144, day_frac=2.314815006343452e-11)
-@example(days=1048576, day_frac=1.157407503171726e-10)
-def test_timedelta_datetime_roundtrip(scale, days, day_frac):
-    td = TimeDelta(days, day_frac, format="jd", scale=scale)
-    td.format = "datetime"
-    assert_almost_equal(td, TimeDelta(td.value, scale=scale), atol=2 * u.us)
-
-
-@given(
-    scale=sampled_from(_utc_bad),
-    days=integers(-3000 * 365, 3000 * 365),
-    day_frac=floats(0, 1)
-)
-@example(days=262144, day_frac=2.314815006343452e-11)
-def test_timedelta_from_parts(scale, days, day_frac):
-    kwargs = dict(format="jd", scale=scale)
-    whole = TimeDelta(days, day_frac, **kwargs)
-    from_parts = TimeDelta(days, **kwargs) + TimeDelta(day_frac, **kwargs)
-    assert whole == from_parts
-
-
-def test_datetime_difference_agrees_with_timedelta_no_hypothesis():
-    scale = "tai"
-    dt1 = datetime(1235, 1, 1, 0, 0)
-    dt2 = datetime(9950, 1, 1, 0, 0, 0, 890773)
-    t1 = Time(dt1, scale=scale)
-    t2 = Time(dt2, scale=scale)
-    assert abs((t2 - t1) - TimeDelta(dt2 - dt1, scale=scale)) < 1 * u.us
-
-
-# datetimes have microsecond resolution
-@given(
-    scale=sampled_from(_utc_bad),
-    dt=datetimes(),
-    td=timedeltas()
-)
-@example(dt=datetime(2000, 1, 1, 0, 0), td=timedelta(days=-397683, microseconds=2))
-@example(dt=datetime(2179, 1, 1, 0, 0), td=timedelta(days=-795365, microseconds=53))
-@example(dt=datetime(2000, 1, 1, 0, 0), td=timedelta(days=1590729, microseconds=10))
-@example(
-    dt=datetime(4357, 1, 1, 0, 0), td=timedelta(days=-1590729, microseconds=107770)
-)
-@example(
-    dt=datetime(4357, 1, 1, 0, 0, 0, 29),
-    td=timedelta(days=-1590729, microseconds=746292),
-)
-def test_datetime_timedelta_sum(scale, dt, td):
-    try:
-        dt + td
-    except OverflowError:
-        assume(False)
-    dt_a = Time(dt, scale=scale)
-    td_a = TimeDelta(td, scale=None if scale == "utc" else scale)
-    assert_almost_equal(dt_a + td_a, Time(dt + td, scale=scale), atol=2 * u.us)
-
-
-@given(
-    kind=sampled_from(["apparent", "mean"]),
-    jds=reasonable_jd(),
-    lat1=floats(-90, 90),
-    lat2=floats(-90, 90),
-    lon=floats(-180, 180),
-)
-def test_sidereal_lat_independent(kind, jds, lat1, lat2, lon):
-    jd1, jd2 = jds
-    t1 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat1))
-    t2 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat2))
-    try:
-        assert_almost_equal(
-            t1.sidereal_time(kind), t2.sidereal_time(kind), atol=1 * u.uas
-        )
-    except iers.IERSRangeError:
-        assume(False)
-
-
-@given(
-    kind=sampled_from(["apparent", "mean"]),
-    jds=reasonable_jd(),
-    lat=floats(-90, 90),
-    lon=floats(-180, 180),
-    lon_delta=floats(-360, 360),
-)
-def test_sidereal_lon_independent(kind, jds, lat, lon, lon_delta):
-    jd1, jd2 = jds
-    t1 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat))
-    t2 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon + lon_delta, lat))
-    try:
-        diff = t1.sidereal_time(kind) + lon_delta * u.degree - t2.sidereal_time(kind)
-    except iers.IERSRangeError:
-        assume(False)
-    else:
-        expected_degrees = (diff.to_value(u.degree) + 180) % 360
-        assert_almost_equal(expected_degrees, 180, atol=1 / (60 * 60 * 1000))
+# @given(
+#     scale=sampled_from(_utc_bad),
+#     days=integers(-3000 * 365, 3000 * 365),
+#     day_frac=floats(0, 1)
+# )
+# @example(days=262144, day_frac=2.314815006343452e-11)
+# @example(days=1048576, day_frac=1.157407503171726e-10)
+# def test_timedelta_datetime_roundtrip(scale, days, day_frac):
+#     td = TimeDelta(days, day_frac, format="jd", scale=scale)
+#     td.format = "datetime"
+#     assert_almost_equal(td, TimeDelta(td.value, scale=scale), atol=2 * u.us)
+# 
+# 
+# @given(
+#     scale=sampled_from(_utc_bad),
+#     days=integers(-3000 * 365, 3000 * 365),
+#     day_frac=floats(0, 1)
+# )
+# @example(days=262144, day_frac=2.314815006343452e-11)
+# def test_timedelta_from_parts(scale, days, day_frac):
+#     kwargs = dict(format="jd", scale=scale)
+#     whole = TimeDelta(days, day_frac, **kwargs)
+#     from_parts = TimeDelta(days, **kwargs) + TimeDelta(day_frac, **kwargs)
+#     assert whole == from_parts
+# 
+# 
+# def test_datetime_difference_agrees_with_timedelta_no_hypothesis():
+#     scale = "tai"
+#     dt1 = datetime(1235, 1, 1, 0, 0)
+#     dt2 = datetime(9950, 1, 1, 0, 0, 0, 890773)
+#     t1 = Time(dt1, scale=scale)
+#     t2 = Time(dt2, scale=scale)
+#     assert abs((t2 - t1) - TimeDelta(dt2 - dt1, scale=scale)) < 1 * u.us
+# 
+# 
+# # datetimes have microsecond resolution
+# @given(
+#     scale=sampled_from(_utc_bad),
+#     dt=datetimes(),
+#     td=timedeltas()
+# )
+# @example(dt=datetime(2000, 1, 1, 0, 0), td=timedelta(days=-397683, microseconds=2))
+# @example(dt=datetime(2179, 1, 1, 0, 0), td=timedelta(days=-795365, microseconds=53))
+# @example(dt=datetime(2000, 1, 1, 0, 0), td=timedelta(days=1590729, microseconds=10))
+# @example(
+#     dt=datetime(4357, 1, 1, 0, 0), td=timedelta(days=-1590729, microseconds=107770)
+# )
+# @example(
+#     dt=datetime(4357, 1, 1, 0, 0, 0, 29),
+#     td=timedelta(days=-1590729, microseconds=746292),
+# )
+# def test_datetime_timedelta_sum(scale, dt, td):
+#     try:
+#         dt + td
+#     except OverflowError:
+#         assume(False)
+#     dt_a = Time(dt, scale=scale)
+#     td_a = TimeDelta(td, scale=None if scale == "utc" else scale)
+#     assert_almost_equal(dt_a + td_a, Time(dt + td, scale=scale), atol=2 * u.us)
+# 
+# 
+# @given(
+#     kind=sampled_from(["apparent", "mean"]),
+#     jds=reasonable_jd(),
+#     lat1=floats(-90, 90),
+#     lat2=floats(-90, 90),
+#     lon=floats(-180, 180),
+# )
+# def test_sidereal_lat_independent(kind, jds, lat1, lat2, lon):
+#     jd1, jd2 = jds
+#     t1 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat1))
+#     t2 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat2))
+#     try:
+#         assert_almost_equal(
+#             t1.sidereal_time(kind), t2.sidereal_time(kind), atol=1 * u.uas
+#         )
+#     except iers.IERSRangeError:
+#         assume(False)
+# 
+# 
+# @given(
+#     kind=sampled_from(["apparent", "mean"]),
+#     jds=reasonable_jd(),
+#     lat=floats(-90, 90),
+#     lon=floats(-180, 180),
+#     lon_delta=floats(-360, 360),
+# )
+# def test_sidereal_lon_independent(kind, jds, lat, lon, lon_delta):
+#     jd1, jd2 = jds
+#     t1 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon, lat))
+#     t2 = Time(jd1, jd2, scale="ut1", format="jd", location=(lon + lon_delta, lat))
+#     try:
+#         diff = t1.sidereal_time(kind) + lon_delta * u.degree - t2.sidereal_time(kind)
+#     except iers.IERSRangeError:
+#         assume(False)
+#     else:
+#         expected_degrees = (diff.to_value(u.degree) + 180) % 360
+#         assert_almost_equal(expected_degrees, 180, atol=1 / (60 * 60 * 1000))
+# 

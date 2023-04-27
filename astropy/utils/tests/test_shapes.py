@@ -1,12 +1,16 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
+import atheris
+import sys
+
 import numpy as np
 import pytest
 from hypothesis import given
-from hypothesis.extra.numpy import basic_indices
+from hypothesis.extra.numpy import basic_indices, arrays
 from numpy.testing import assert_equal
 
-from astropy.utils.shapes import check_broadcast, simplify_basic_index, unbroadcast
+with atheris.instrument_imports():
+    from astropy.utils.shapes import check_broadcast, simplify_basic_index, unbroadcast
 
 
 def test_check_broadcast():
@@ -35,30 +39,35 @@ def test_unbroadcast():
 TEST_SHAPE = (13, 16, 4, 90)
 
 
-class TestSimplifyBasicIndex:
+# class TestSimplifyBasicIndex:
     # We use a class here so that we can allocate the data once and for all to
     # speed up the testing.
 
-    def setup_class(self):
-        self.shape = TEST_SHAPE
-        self.data = np.random.random(TEST_SHAPE)
+# def setup_class(self):
+test_shape = TEST_SHAPE
+rand_data = np.random.random(TEST_SHAPE)
 
-    @given(basic_indices(TEST_SHAPE))
-    def test_indexing(self, index):
-        new_index = simplify_basic_index(index, shape=self.shape)
-        assert_equal(self.data[index], self.data[new_index])
-        assert isinstance(new_index, tuple)
-        assert len(new_index) == len(self.shape)
-        for idim, idx in enumerate(new_index):
-            assert isinstance(idx, (slice, int))
-            if isinstance(idx, int):
-                assert idx >= 0
-            else:
-                assert isinstance(idx.start, int)
-                assert idx.start >= 0
-                assert idx.start < TEST_SHAPE[idim]
-                if idx.stop is not None:
-                    assert isinstance(idx.stop, int)
-                    assert idx.stop >= 0
-                    assert idx.stop <= TEST_SHAPE[idim]
-                assert isinstance(idx.step, int)
+@given(index=basic_indices(TEST_SHAPE), data=arrays(int, TEST_SHAPE))
+@atheris.instrument_func
+def test_indexing(index, data):
+    new_index = simplify_basic_index(index, shape=TEST_SHAPE)
+    assert_equal(data[index], data[new_index])
+    assert isinstance(new_index, tuple)
+    assert len(new_index) == len(TEST_SHAPE)
+    for idim, idx in enumerate(new_index):
+        assert isinstance(idx, (slice, int))
+        if isinstance(idx, int):
+            assert idx >= 0
+        else:
+            assert isinstance(idx.start, int)
+            assert idx.start >= 0
+            assert idx.start < TEST_SHAPE[idim]
+            if idx.stop is not None:
+                assert isinstance(idx.stop, int)
+                assert idx.stop >= 0
+                assert idx.stop <= TEST_SHAPE[idim]
+            assert isinstance(idx.step, int)
+
+if __name__ == "__main__":
+    atheris.Setup(sys.argv, test_indexing.hypothesis.fuzz_one_input)
+    atheris.Fuzz()
